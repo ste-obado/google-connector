@@ -1,0 +1,230 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Google Ads AI Optimization Connector",
+    "description": "Allows Claude to read Google Ads campaign performance and post newly generated Responsive Search Ad creative.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://googleads.googleapis.com/v17"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "OAuth2": {
+        "type": "oauth2",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+            "tokenUrl": "https://oauth2.googleapis.com/token",
+            "scopes": {
+              "https://www.googleapis.com/auth/adwords": "Manage your Google Ads accounts"
+            }
+          }
+        }
+      }
+    },
+    "parameters": {
+      "DeveloperToken": {
+        "name": "developer-token",
+        "in": "header",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "Your approved Google Ads developer token. Required on every request."
+      },
+      "LoginCustomerId": {
+        "name": "login-customer-id",
+        "in": "header",
+        "required": false,
+        "schema": { "type": "string" },
+        "description": "10-digit manager (MCC) account ID without dashes. Required when accessing a client account through a manager account."
+      }
+    }
+  },
+  "security": [
+    { "OAuth2": [] }
+  ],
+  "paths": {
+    "/customers/{customerId}/googleAds:search": {
+      "post": {
+        "summary": "Read Performance Metrics",
+        "description": "Fetch active campaigns, impressions, clicks, cost, and conversions via Google Ads Query Language (GAQL).",
+        "operationId": "searchCampaignMetrics",
+        "parameters": [
+          {
+            "name": "customerId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The 10-digit Google Ads Customer ID without dashes."
+          },
+          { "$ref": "#/components/parameters/DeveloperToken" },
+          { "$ref": "#/components/parameters/LoginCustomerId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "example": "SELECT campaign.id, campaign.name, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions FROM campaign WHERE campaign.status = 'ENABLED' LIMIT 10"
+                  },
+                  "pageSize": {
+                    "type": "integer",
+                    "description": "Number of results per page (max 10000).",
+                    "example": 100
+                  }
+                },
+                "required": ["query"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": { "type": "array", "items": { "type": "object" } },
+                    "nextPageToken": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Invalid or expired OAuth token" },
+          "403": { "description": "Developer token not approved, or account access denied" }
+        }
+      }
+    },
+    "/customers/{customerId}/adGroupAds:mutate": {
+      "post": {
+        "summary": "Post New AI Ad Creative",
+        "description": "Push newly generated Responsive Search Ad (RSA) headlines and descriptions into a specific Ad Group. Expanded Text Ads are deprecated and no longer supported by Google Ads.",
+        "operationId": "mutateAdGroupAd",
+        "parameters": [
+          {
+            "name": "customerId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          { "$ref": "#/components/parameters/DeveloperToken" },
+          { "$ref": "#/components/parameters/LoginCustomerId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "operations": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "create": {
+                          "type": "object",
+                          "properties": {
+                            "adGroup": {
+                              "type": "string",
+                              "description": "Resource name of the target Ad Group, e.g. customers/123/adGroups/456"
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": ["ENABLED", "PAUSED"],
+                              "default": "PAUSED",
+                              "description": "New ads should default to PAUSED until reviewed."
+                            },
+                            "ad": {
+                              "type": "object",
+                              "properties": {
+                                "responsiveSearchAd": {
+                                  "type": "object",
+                                  "properties": {
+                                    "headlines": {
+                                      "type": "array",
+                                      "minItems": 3,
+                                      "maxItems": 15,
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "text": { "type": "string", "maxLength": 30 },
+                                          "pinnedField": {
+                                            "type": "string",
+                                            "enum": ["HEADLINE_1", "HEADLINE_2", "HEADLINE_3"],
+                                            "description": "Optional: pin this asset to a fixed position."
+                                          }
+                                        },
+                                        "required": ["text"]
+                                      }
+                                    },
+                                    "descriptions": {
+                                      "type": "array",
+                                      "minItems": 2,
+                                      "maxItems": 4,
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "text": { "type": "string", "maxLength": 90 }
+                                        },
+                                        "required": ["text"]
+                                      }
+                                    }
+                                  },
+                                  "required": ["headlines", "descriptions"]
+                                },
+                                "finalUrls": {
+                                  "type": "array",
+                                  "items": { "type": "string" }
+                                }
+                              }
+                            }
+                          },
+                          "required": ["adGroup", "ad"]
+                        }
+                      }
+                    }
+                  },
+                  "partialFailure": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "If true, successful operations are applied even if some in the batch fail."
+                  }
+                },
+                "required": ["operations"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ad(s) posted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": { "type": "array", "items": { "type": "object" } },
+                    "partialFailureError": { "type": "object" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Malformed request, e.g. headline exceeds 30 chars or too few assets" },
+          "401": { "description": "Invalid or expired OAuth token" },
+          "403": { "description": "Developer token not approved, or account access denied" }
+        }
+      }
+    }
+  }
+}
